@@ -1,7 +1,8 @@
+import 'react-native-gesture-handler';
 import React from 'react';
 import {StatusBar} from 'react-native';
 import {ContactProvider} from './src/utils/ContactContext';
-import ContactListScreen from './src/screens/ContactList/ContactListScreen';
+import AppNavigator from './src/navigation/AppNavigator';
 import {Colors} from './src/styles/globalStyles';
 
 const App = () => {
@@ -11,7 +12,7 @@ const App = () => {
                 backgroundColor={Colors.primary} 
                 barStyle="light-content" 
             />
-            <ContactListScreen />
+            <AppNavigator />
         </ContactProvider>
     );
 };

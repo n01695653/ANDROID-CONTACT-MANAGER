@@ -1,216 +1,252 @@
-import React, {useState, useMemo} from 'react';
+import React, { useState, useEffect, useCallback, useMemo} from 'react';
 import {
     View,
-    Text,
     FlatList,
-    TouchableOpacity,
-    TextInput,
-    StyleSheet,
-    ActivityIndicator,
+    Text,
     RefreshControl,
+    Alert,
+    Linking,
+    StyleSheet,
+    SafeAreaView,
+    TouchableOpacity,
 } from 'react-native';
 import Icon from 'react-native-vector-icons/MaterialIcons';
 import {useContacts} from '../../utils/ContactContext';
 import ContactListItem from '../../components/common/ContactListItem';
-import {Colors, Fonts, Spacing, GlobalStyles} from '../../styles/globalStyles';
+import CustomInput from '../../components/common/CustomInput';
+import LoadingSpinner from '../../components/common/LoadingSpinner';
 import {searchContacts} from '../../data/contactsData';
+import {Colors, Fonts, Spacing, GlobalStyles} from '../../styles/globalStyles';
 
-const ContactListScreen = () => {
-    const {contacts, loading, toggleFavorite, refreshContacts} = useContacts();
+const ContactListScreen = ({navigation}) => {
+    const {
+        contacts,
+        loading,
+        toggleFavorite,
+        deleteContact,
+        refreshContacts,
+    } = useContacts();
+
     const [searchTerm, setSearchTerm] = useState('');
     const [refreshing, setRefreshing] = useState(false);
+    const [sortBy, setSortBy] = useState('name');
 
-    const filteredContacts = useMemo(() => {
-        return searchContacts(contacts, searchTerm);
-    }, [contacts, searchTerm]);
+    const displayContacts = useMemo(() => {
+        let filtered = searchContacts(contacts, searchTerm);
 
-    const onRefresh = async () => {
+        filtered.sort((a, b) => {
+            if (sortBy === 'name') {
+                const nameA = `${a.firstName} ${a.lastName}`.toLowerCase();
+                const nameB = `${b.firstName} ${b.lastName}`.toLowerCase();
+                return nameA.localeCompare(nameB);
+            } else if (sortBy === 'company') {
+                const companyA = (a.company || '').toLowerCase();
+                const companyB = (b.company || '').toLowerCase();
+                return companyA.localeCompare(companyB);
+            } else if (sortBy === 'recent') {
+                return new Date(b.createdAt) - new Date(a.createdAt);
+            }
+            return 0;
+        });
+
+        return filtered.sort((a, b) => {
+            if (a.favorite && !b.favorite) return -1;
+            if (!a.favorite && b.favorite) return 1;
+            return 0;
+        });
+    }, [contacts, searchTerm, sortBy]);
+
+    const handleRefresh = useCallback(async () => {
         setRefreshing(true);
         await refreshContacts();
         setRefreshing(false);
-    };
+    }, [refreshContacts]);
 
-    const handleContactPress = (contact) => {
-        // Navigation to contact details will be implemented later
-        console.log('Contact pressed:', contact);
-        alert(`Contact Details for ${contact.firstName} ${contact.lastName}\n\nWe'll implement navigation to details screen next!`);
-    };
+    const handleContactPress = useCallback((contact) => {
+        Alert.alert(
+            'Contact Details',
+            `Name: ${contact.firstName} ${contact.lastName}\nEmail: ${contact.email}\nPhone: ${contact.phone}`,
+            [{ text: 'OK' }]
+        );
+    }, []);
 
-    const handleFavoritePress = (contactId) => {
-        toggleFavorite(contactId);
-    };
+    const handleFavoritePress = useCallback(async (contactId) => {
+        await toggleFavorite(contactId);
+    }, [toggleFavorite]);
+
+    const handleCallPress = useCallback((phoneNumber) => {
+        const url = `tel:${phoneNumber}`;
+        Linking.canOpenURL(url).then((supported) => {
+            if (supported) {
+                Linking.openURL(url);
+            } else {
+                Alert.alert('Error', 'Phone calls are not supported on this device');
+            }
+        });
+    }, []);
+
+    const handleMessagePress = useCallback((phoneNumber) => {
+        const url = `sms:${phoneNumber}`;
+        Linking.canOpenURL(url).then((supported) => {
+            if (supported) {
+                Linking.openURL(url);
+            } else {
+                Alert.alert('Error', 'SMS is not supported on this device');
+            }
+        });
+    }, []);
+
+    const renderContactItem = useCallback(({item}) => (
+        <ContactListItem
+            contact={item}
+            onPress={handleContactPress}
+            onFavoritePress={handleFavoritePress}
+            onCallPress={handleCallPress}
+            onMessagePress={handleMessagePress}
+        />
+    ), [handleContactPress, handleFavoritePress, handleCallPress, handleMessagePress]);
+
+    const renderEmptyState = useCallback(() => (
+        <View style={styles.emptyContainer}>
+            <Icon name="contacts" size={80} color={Colors.text.secondary} />
+            <Text style={styles.emptyTitle}>No Contacts Found</Text>
+            <Text style={styles.emptyText}>
+                {searchTerm
+                    ? `No contacts match "${searchTerm}"`
+                    : 'Add your first contact to get started'
+                }
+            </Text>
+        </View>
+    ), [searchTerm]);
 
     if (loading) {
-        return (
-            <View style={[GlobalStyles.container, GlobalStyles.centered]}>
-                <ActivityIndicator size="large" color={Colors.primary} />
-                <Text style={styles.loadingText}>Loading contacts...</Text>
-            </View>
-        );
+        return <LoadingSpinner />;
     }
 
     return (
-        <View style={GlobalStyles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>Contacts</Text>
-                <Text style={styles.headerSubtitle}>
-                    {filteredContacts.length} contact{filteredContacts.length !== 1 ? 's' : ''}
+        <SafeAreaView style={styles.container}>
+            <View style={styles.searchContainer}>
+                <CustomInput
+                    label="Search contacts"
+                    value={searchTerm}
+                    onChangeText={setSearchTerm}
+                    leftIcon="search"
+                    rightIcon={searchTerm ? "clear" : null}
+                    onRightIconPress={() => setSearchTerm('')}
+                    placeholder="Search by name, company, or email"
+                />
+            </View>
+
+            <View style={styles.statsContainer}>
+                <Text style={styles.statsText}>
+                    {displayContacts.length} contact{displayContacts.length !== 1 ? 's' : ''}
+                    {searchTerm && ` for "${searchTerm}"`}
                 </Text>
             </View>
 
-            {/* Search Bar */}
-            <View style={styles.searchContainer}>
-                <Icon name="search" size={24} color={Colors.text.secondary} style={styles.searchIcon} />
-                <TextInput
-                    style={styles.searchInput}
-                    placeholder="Search contacts..."
-                    value={searchTerm}
-                    onChangeText={setSearchTerm}
-                    accessible={true}
-                    accessibilityLabel="Search contacts"
-                    accessibilityHint="Type to search through your contacts"
-                />
-                {searchTerm.length > 0 && (
-                    <TouchableOpacity
-                        style={styles.clearButton}
-                        onPress={() => setSearchTerm('')}
-                        accessible={true}
-                        accessibilityRole="button"
-                        accessibilityLabel="Clear search"
-                    >
-                        <Icon name="close" size={20} color={Colors.text.secondary} />
-                    </TouchableOpacity>
-                )}
-            </View>
+            <FlatList
+                data={displayContacts}
+                renderItem={renderContactItem}
+                keyExtractor={(item) => item.id}
+                ListEmptyComponent={renderEmptyState}
+                refreshControl={
+                    <RefreshControl
+                        refreshing={refreshing}
+                        onRefresh={handleRefresh}
+                        colors={[Colors.primary]}
+                        tintColor={Colors.primary}
+                    />
+                }
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={[
+                    styles.listContainer,
+                    displayContacts.length === 0 && styles.emptyListContainer,
+                ]}
+                getItemLayout={(data, index) => ({
+                    length: 90,
+                    offset: 90 * index,
+                    index,
+                })}
+                removeClippedSubviews={true}
+                maxToRenderPerBatch={10}
+                windowSize={10}
+                initialNumToRender={10}
+            />
 
-            {/* Contact List */}
-            {filteredContacts.length === 0 ? (
-                <View style={[GlobalStyles.container, GlobalStyles.centered]}>
-                    <Icon name="contacts" size={64} color={Colors.text.secondary} />
-                    <Text style={styles.emptyText}>
-                        {searchTerm ? 'No contacts found' : 'No contacts yet'}
-                    </Text>
-                    <Text style={styles.emptySubtext}>
-                        {searchTerm ? 'Try a different search term' : 'Add your first contact to get started'}
-                    </Text>
-                </View>
-            ) : (
-                <FlatList
-                    data={filteredContacts}
-                    keyExtractor={(item) => item.id}
-                    renderItem={({item}) => (
-                        <ContactListItem
-                            contact={item}
-                            onPress={handleContactPress}
-                            onFavoritePress={handleFavoritePress}
-                        />
-                    )}
-                    refreshControl={
-                        <RefreshControl
-                            refreshing={refreshing}
-                            onRefresh={onRefresh}
-                            colors={[Colors.primary]}
-                            tintColor={Colors.primary}
-                        />
-                    }
-                    contentContainerStyle={styles.listContent}
-                    showsVerticalScrollIndicator={false}
-                />
-            )}
-
-            {/* Add Contact Button */}
             <TouchableOpacity
-                style={styles.addButton}
-                onPress={() => alert('Add contact functionality coming next!')}
+                style={styles.floatingButton}
+                onPress={() => navigation.navigate('AddContact')}
                 accessible={true}
                 accessibilityRole="button"
                 accessibilityLabel="Add new contact"
             >
                 <Icon name="add" size={24} color={Colors.text.light} />
             </TouchableOpacity>
-        </View>
+        </SafeAreaView>
     );
 };
 
 const styles = StyleSheet.create({
-    header: {
-        backgroundColor: Colors.primary,
-        paddingVertical: Spacing.lg,
-        paddingHorizontal: Spacing.md,
-    },
-    headerTitle: {
-        fontSize: Fonts.xlarge,
-        fontWeight: 'bold',
-        color: Colors.text.light,
-        marginBottom: Spacing.xs,
-    },
-    headerSubtitle: {
-        fontSize: Fonts.small,
-        color: Colors.text.light,
-        opacity: 0.8,
+    container: {
+        ...GlobalStyles.container,
     },
     searchContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: Colors.surface,
-        margin: Spacing.md,
         paddingHorizontal: Spacing.md,
-        borderRadius: 12,
+        paddingTop: Spacing.md,
+        paddingBottom: Spacing.sm,
+        backgroundColor: Colors.surface,
         elevation: 2,
         shadowColor: '#000',
-        shadowOffset: {width: 0, height: 1},
+        shadowOffset: {width: 0, height: 2},
         shadowOpacity: 0.1,
-        shadowRadius: 3,
+        shadowRadius: 4,
     },
-    searchIcon: {
-        marginRight: Spacing.sm,
+    statsContainer: {
+        paddingHorizontal: Spacing.md,
+        paddingVertical: Spacing.sm,
     },
-    searchInput: {
-        flex: 1,
-        fontSize: Fonts.medium,
-        paddingVertical: Spacing.md,
-        color: Colors.text.primary,
-    },
-    clearButton: {
-        padding: Spacing.xs,
-    },
-    listContent: {
-        paddingBottom: Spacing.xl,
-    },
-    loadingText: {
-        marginTop: Spacing.md,
-        fontSize: Fonts.medium,
+    statsText: {
+        fontSize: Fonts.small,
         color: Colors.text.secondary,
+    },
+    listContainer: {
+        paddingBottom: 80,
+    },
+    emptyListContainer: {
+        flexGrow: 1,
+        justifyContent: 'center',
+    },
+    emptyContainer: {
+        ...GlobalStyles.centered,
+        paddingHorizontal: Spacing.xl,
+    },
+    emptyTitle: {
+        fontSize: Fonts.large,
+        fontWeight: 'bold',
+        color: Colors.text.primary,
+        marginTop: Spacing.md,
+        marginBottom: Spacing.sm,
     },
     emptyText: {
-        fontSize: Fonts.large,
-        color: Colors.text.secondary,
-        marginTop: Spacing.md,
-        textAlign: 'center',
-    },
-    emptySubtext: {
         fontSize: Fonts.medium,
         color: Colors.text.secondary,
-        marginTop: Spacing.sm,
         textAlign: 'center',
-        opacity: 0.7,
+        lineHeight: 22,
     },
-    addButton: {
+    floatingButton: {
         position: 'absolute',
-        right: Spacing.lg,
-        bottom: Spacing.lg,
+        bottom: 20,
+        right: 20,
         width: 56,
         height: 56,
         borderRadius: 28,
         backgroundColor: Colors.primary,
-        justifyContent: 'center',
-        alignItems: 'center',
-        elevation: 4,
+        ...GlobalStyles.centered,
+        elevation: 6,
         shadowColor: '#000',
-        shadowOffset: {width: 0, height: 2},
+        shadowOffset: {width: 0, height: 3},
         shadowOpacity: 0.3,
-        shadowRadius: 4,
+        shadowRadius: 6,
     },
 });
 
